@@ -390,13 +390,16 @@ python scripts/run_live.py --tier 0
 
 ## **17. Team**
 
-S. No.	Name	Role
-1	Rudraksh Budhappa	Member
-2	Ritesh Ranjan	Member
-3	Sagar	Member
-4	Isha Thakur	Member
-5	Sarwat Hussian Sheik	Member
-6	Janhavi Tidke	Member
+| S. No. | Name | Role |
+|:---:|---|---|
+| 1 | Rudraksh Budhappa | Member |
+| 2 | Ritesh Ranjan | Member |
+| 3 | Sagar | Member |
+| 4 | Isha Thakur | Member |
+| 5 | Sarwat Hussian Sheik | Member |
+| 6 | Janhavi Tidke | Member |
+
+**Team name:** 6 Solvers | **Team ID:** (fill in) | **Problem Statement:** SIH26052
 
 **Team name:** 6 Solvers | **Team ID:** (fill in) | **Problem Statement:** SIH26052
 
