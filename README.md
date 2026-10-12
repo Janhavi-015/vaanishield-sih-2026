@@ -1,15 +1,15 @@
-# **VaaniShield**
+# VaaniShield
 
-### **A self-monitoring, dual-microphone neural denoiser for defence communication, designed to run in real time on a Raspberry Pi**
+**A self-monitoring, dual-microphone neural denoiser for defence communication, designed to run in real time on a Raspberry Pi 4.**
 
-**Smart India Hackathon 2026** | Problem Statement **SIH26052** | Category: **Hardware** | Theme: **Miscellaneous**
+Smart India Hackathon 2026 | Problem Statement **SIH26052** | Category: Hardware | Theme: Miscellaneous
+Team **6 Solvers** | Team ID **186200**
 
-> **PROJECT STATUS: DESIGN STAGE.**
-> This repository documents the **full design**, **dataset specification** and **evaluation plan**. Items are labelled **Implemented**, **In progress** or **Planned** in the [Status table](#11-project-status). **Nothing in this README is a measured result unless it says so. Targets are targets, not achievements.**
+> **PROJECT STATUS: DESIGN STAGE.** This repository documents the design, dataset specification and evaluation plan. Every item is labelled *Designed*, *Planned*, *In progress* or *Implemented* in the Status table (Section 11). **Nothing in this README is a measured result unless it says so. Targets are targets, not achievements.**
 
 ---
 
-## **Table of contents**
+## Table of contents
 
 1. [The problem](#1-the-problem)
 2. [Why classical noise cancellation fails here](#2-why-classical-noise-cancellation-fails-here)
@@ -24,7 +24,7 @@
 11. [Project status](#11-project-status)
 12. [What we claim and what we do not](#12-what-we-claim-and-what-we-do-not)
 13. [Known limitations and risks](#13-known-limitations-and-risks)
-14. [Proposed repository layout](#14-proposed-repository-layout)
+14. [Repository layout](#14-repository-layout)
 15. [Getting started (planned)](#15-getting-started-planned)
 16. [Impact and future scope](#16-impact-and-future-scope)
 17. [Team](#17-team)
@@ -33,293 +33,304 @@
 
 ---
 
-## **1. The problem**
+## 1. The problem
 
-**PS SIH26052:** develop an **AI/ML-enabled adaptive noise cancellation (ANC) system** that suppresses **stationary**, **non-stationary** and **impulsive** defence noises while maintaining **high speech intelligibility** and **real-time performance on embedded hardware**.
+PS SIH26052: develop an AI/ML-enabled adaptive noise cancellation (ANC) system that suppresses **stationary, non-stationary and impulsive** defence noises while maintaining **high speech intelligibility** and **real-time performance on embedded hardware**.
 
-In practice, a soldier's radio or headset audio is buried under:
+A soldier's radio or headset audio is buried under:
 
 | Noise type | Examples | Why it is hard |
 |---|---|---|
-| **Stationary** | Engine hum, wind, rotor drone | Steady, but often **as loud as speech** |
-| **Non-stationary** | Vehicle passing, crowd, machinery changes | Statistics change **faster than simple filters adapt** |
-| **Impulsive** | Gunshots, artillery, blasts | Last only **a few milliseconds** but are **extremely loud** |
+| Stationary | Engine hum, wind, rotor drone | Steady, but often as loud as speech |
+| Non-stationary | Vehicle passing, crowd, machinery changes | Statistics change faster than simple filters adapt |
+| Impulsive | Gunshots, artillery, blasts | Last only a few milliseconds but are extremely loud |
 
-**Misheard commands are a mission risk, and very loud impulses are also a hearing-safety risk for the listener.**
+Misheard commands are a mission risk, and very loud impulses are also a hearing-safety risk for the listener.
 
-**Our interpretation of the PS:** we treat this as noise cancellation on the **communication path** (microphone to headset audio), i.e. **speech enhancement**. **We do not attempt physical anti-noise inside the earcup in this phase** (see [Future scope](#16-impact-and-future-scope)).
+**Our interpretation of the PS.** We treat this as noise cancellation on the *communication path* (microphone to headset audio), i.e. speech enhancement. We do not produce physical anti-noise inside the earcup in this phase (see Future scope).
 
-## **2. Why classical noise cancellation fails here**
+## 2. Why classical noise cancellation fails here
 
-- **Spectral subtraction and Wiener filtering** assume the noise is roughly **stationary** so it can be estimated in speech pauses. Engines and wind fit this; **gunshots and changing vehicle noise do not**.
-- **LMS/NLMS adaptive filters** need a **reference signal** correlated with the noise and can **diverge** or **cancel the wearer's own voice** if they keep adapting during speech or impulses.
-- **Frame-based neural models** typically work on **20-32 ms STFT frames**. **A gunshot lasts roughly 1-5 ms, so it is shorter than one frame** and gets smeared across the frame instead of being removed cleanly.
-- **Single-model systems fail silently.** If a microphone is blocked or wind-blasted, or the model is too slow, most systems just produce **bad or no audio**.
+- **Spectral subtraction and Wiener filtering** assume the noise is roughly stationary so it can be estimated in speech pauses. Engines and wind fit this; gunshots and changing vehicle noise do not.
+- **LMS/NLMS adaptive filters** need a reference signal correlated with the noise and can diverge, or cancel the wearer's own voice, if they keep adapting during speech or impulses.
+- **Frame-based neural models** typically work on 20 ms STFT frames. A gunshot lasts roughly 1-5 ms, so it is shorter than one frame and gets smeared across it instead of being removed cleanly.
+- **Single-model systems fail silently.** If a microphone is blocked or the model is too slow, most systems just produce bad or no audio.
 
-**Our design attacks each of these failure modes with a specific block** (Section 5).
+Our design attacks each of these failure modes with a specific block (Section 5).
 
-## **3. Our idea in one paragraph**
+## 3. Our idea in one paragraph
 
-VaaniShield combines a **pretrained open-source neural denoiser (DeepFilterNet3)**, **fine-tuned for defence-like noise**, with a set of **small, mostly classical blocks around it**: a **guard** that detects gunshots and wearer speech, a **time-domain repair** step for impulses, a **guarded adaptive filter**, a **three-stream separator**, a **per-frame confidence controller**, a **microphone-health monitor**, and a **limiter plus watchdog**. The neural model does the heavy lifting; the surrounding blocks handle the cases where a neural model alone is known to be weak, and **make the system degrade safely instead of going silent**.
+VaaniShield is a wearable, real-time speech-enhancement system. Two microphones feed a Raspberry Pi 4, where a **classical guard**, an **adaptive filter** and a **neural denoiser** clean the audio, and a **safety limiter** protects the listener's ears before it goes to the headset. The neural model (fine-tuned DeepFilterNet3) does the heavy lifting; the small classical blocks around it handle the cases where a neural model alone is known to be weak, and the self-monitoring blocks make the system degrade safely instead of going silent.
 
-> **The base model is DeepFilterNet3. Our contribution is the surrounding pipeline, the dataset design, the dual-microphone conditioning and the evaluation plan.** Every additional block is a **hypothesis** that our ablation study will test; **blocks that do not show a measured gain will be dropped**, and optional blocks are built only if time allows.
+The base model is **DeepFilterNet3**. Our contribution is the surrounding pipeline, the dataset design, the dual-microphone conditioning and the evaluation plan. **Every additional block is a hypothesis that our ablation will test; blocks that show no measured gain are dropped before the demo.**
 
-## **4. System architecture**
+## 4. System architecture
 
-```mermaid
-flowchart TD
-    M["Mic1 + Mic2, I2S, same clock"] --> P["P: Physical disturbance monitor"]
-    P -->|"health flags + trust weights"| G["G: Guard and gate"]
-    G -->|"impulse flag, wearer-speech flag"| R["R: Impulse repair, time domain"]
-    R --> N["N: Guarded NLMS"]
-    N --> S["S: Three-stream separator"]
-    S --> E["E: DeepFilterNet3 core, dual-mic, FiLM-conditioned"]
-    E -->|"enhanced spectrum + confidence"| C["M: Margin controller"]
-    C --> L["Soft limiter, about -3 dBFS"]
-    L --> D["USB DAC to headset"]
-    W["Watchdog"] -.->|"model slow or fail"| N
-    W -.->|"second-level fallback"| L
-    DASH["Live dashboard"] -.-> P
-    DASH -.-> S
-    DASH -.-> C
+Three layers, matching the project presentation:
+
+| Layer | Name | Blocks |
+|---|---|---|
+| 1 | Sense and Guard | Dual mics, impulse detector, speech gate, mic-health monitor |
+| 2 | Classical | Guarded NLMS removes noise both mics hear |
+| 3 | Neural | Fine-tuned DeepFilterNet3-based dual-mic model removes the remaining stationary, periodic and impulsive noise |
+
+Around these: confidence blend, soft limiter, watchdog fallback and a live dashboard.
+
+### Live pipeline (Raspberry Pi 4)
+
+```
+Mic1 + Mic2 (I2S, same clock)
+   -> Capture thread
+        |-> Mic-health monitor (rule-based)
+   -> Impulse guard + speech gate
+   -> Guarded NLMS (step size set by the gate)
+   -> STFT (2 mics + inter-mic ratio)
+   -> DFN3 dual-mic model (ONNX int8, FiLM-conditioned)
+   -> Confidence blend
+   -> iSTFT (overlap-add)
+   -> Soft limiter (-3 dBFS ceiling)
+   -> USB DAC -> Headset (volume-limited)
+
+Watchdog: if the model is slow or fails -> NLMS + limiter -> pass-through + limiter
 ```
 
-> **Core path:** **G, N, E, limiter and watchdog.** Blocks **P, R, S and M** in the diagram are **optional extensions** (see Section 5).
+### Offline pipeline (laptop / Colab)
 
-### **Signal flow in words**
+```
+Defence noise + speech -> 2-mic simulator (data mixer, SNR mix)
+   -> Train / fine-tune (DFN3 + losses)
+   -> Export and save (ONNX int8)
+   -> model.onnx + config -> SD card of the Pi
+```
 
-1. Two **I2S MEMS microphones** capture audio, **sample-synchronised because they share one clock**.
-2. The **disturbance monitor** checks raw microphone frames for blocked, dead, clipped, wind-blasted or touched microphones, **without using any neural network**.
-3. The **guard** flags **impulses (gunshots)** and **wearer speech**.
-4. **Impulse repair** blanks the few milliseconds of an impulse and refills them from neighbouring samples.
-5. A **guarded NLMS** removes noise that both microphones hear, and is **frozen during impulses, speech and wind**.
-6. The **separator** estimates how much of each time-frequency bin is **speech**, **continuous noise** or **impulsive noise**.
-7. The **neural core** (DeepFilterNet3, extended to two microphones and conditioned on the flags and stream estimates) produces the **enhanced spectrum** and a per-bin **confidence**.
-8. The **margin controller** blends the enhanced output with a conservative version of the input according to confidence.
-9. A **look-ahead soft limiter** protects the listener's ears before audio reaches the headset.
-10. A **watchdog** switches to simpler paths if the model is too slow or fails.
-
-### **Graceful degradation ladder**
+### Graceful degradation ladder
 
 | Level | Path | When it is used |
 |---|---|---|
-| **Full** | Guard, repair, NLMS, separator, DFN3 core, confidence blend, limiter | Normal operation |
-| **Reduced** | NLMS + limiter | Model too slow or failed |
-| **Minimal** | Pass-through + limiter | Everything else failed |
+| Full | Guard, NLMS, DFN3 core, confidence blend, limiter | Normal operation |
+| Reduced | NLMS + limiter | Model too slow or failed |
+| Minimal | Pass-through + limiter | Everything else failed |
 
-## **5. Block-by-block explainer**
+## 5. Block-by-block explainer
 
-Each block lists **what it does**, **how**, and **which failure it addresses**.
+Each block lists what it does, how, and which failure it addresses.
 
-**Core vs optional.** The **core system** is the **guard (G)**, **guarded NLMS (N)**, the **neural core (E)** and the **limiter and watchdog**. **These cover the PS requirements.** The **disturbance monitor (P)**, **impulse repair (R)**, **three-stream separator (S)**, **confidence controller (M)** and **dashboard** are **optional extensions**: they are designed and documented here, but **they are built and reported only if time allows.**
+### 5.1 Layer 1: Sense and Guard
 
-### **5.1 P: Physical disturbance monitor (no neural network)** *(optional)*
+**Impulse detector.** A frame-energy jump of roughly 15 dB over a running median flags a gunshot or blast. A short-frame (1-2 ms) time-domain detector is used because a gunshot is shorter than one STFT frame. Thresholds are starting values, to be tuned on the prototype.
 
-- **Input:** raw microphone frames.
-- **Method:** simple, explainable signal checks.
-  - **Blocked or dead mic:** energy collapse in one channel.
-  - **Wind:** strong low-frequency energy with low inter-mic coherence (wind is uncorrelated between mics).
-  - **Clipping:** samples running at full scale.
-  - **Touch or handling thump:** low-frequency burst in one microphone only.
-  - **Dropout or clock issue:** missing or repeated blocks.
-- **Output:** a **health flag** and a **trust weight** per microphone.
-- **Why it exists:** **a neural model cannot tell that its own input is broken.** This block is deliberately independent of the model, so it still works when the model is wrong.
-- **Metric (if built):** detection rate and false-alarm rate on injected faults (not SNR).
-- **Assumption:** we interpret "physical disturbance" as **microphone-level faults**. Locating a gunshot's direction from inter-mic delay is a different block and would be coarse with two microphones a few centimetres apart.
+**Speech gate.** The wearer-speech flag comes from a high Mic1/Mic2 energy ratio, because Mic 1 is near the mouth and Mic 2 faces away.
 
-### **5.2 G: Guard and gate** *(core)*
+**Purpose of both:** stop the adaptive filter from blowing up on gunshots or cancelling the wearer's own voice, and tell the neural model when an impulse is present.
 
-- **Impulse flag:** a frame-energy jump of roughly **15 dB** above a running median (threshold to be tuned).
-- **Wearer-speech flag:** high **Mic1/Mic2 energy ratio**, because Mic1 is near the mouth and Mic2 faces away.
-- **Purpose:** **stops the adaptive filter from blowing up on gunshots or cancelling the wearer's own voice**, and tells the neural model when an impulse is present.
+**Mic-health monitor (no neural network).** Simple, explainable signal checks on raw microphone frames:
 
-### **5.3 R: Impulse repair (time domain)** *(optional)*
+- Blocked or dead mic: energy collapse in one channel
+- Wind: strong low-frequency energy with low inter-mic coherence (wind is uncorrelated between mics)
+- Clipping: samples at full scale
+- Touch or handling thump: low-frequency burst in one mic only
+- Dropout or clock issue: missing or repeated blocks
 
-- **Problem:** a gunshot (about **1-5 ms**) is shorter than one **20 ms STFT frame**, so a frame-based model cannot localise it.
-- **Method:** blank about **2-5 ms** around the detected impulse and fill the gap by **LPC interpolation** from neighbouring samples.
-- **Result:** a **click-free signal** that the model then processes.
-- **Known limit:** muzzle-blast ringing can outlast the click; the neural model handles that tail. **If built, we will report impulsive-noise results with and without this block.**
+Output: a health flag and a trust weight per microphone. It is deliberately independent of the neural model, so it still works when the model is wrong. If it is built, we report detection rate and false-alarm rate on injected faults (not SNR).
 
-### **5.4 N: Guarded NLMS** *(core)*
+### 5.2 Layer 2: Guarded NLMS
 
-- A **normalised LMS adaptive filter** using **Mic2 as a noise reference** for Mic1.
-- **Guard rule:** step size **`mu = 0`** during impulses, wearer speech and wind.
-- **Kept in the final system only if the ablation shows a gain.**
+A normalised LMS adaptive filter that uses Mic 2 as a noise reference for Mic 1, removing noise that both microphones hear (engine, rotor).
 
-### **5.5 S: Three-stream separator** *(optional)*
+| Condition | Step size mu | Effect |
+|---|---|---|
+| Impulse (gunshot / blast) | 0 | Weights frozen; the model and limiter handle the blast |
+| Wearer speech present | 0 | NLMS cannot learn to cancel the voice |
+| New noise onset | High (start 0.5-0.8) | Filter adapts quickly |
+| Steady noise | Low (start about 0.05) | Fine tracking, no jitter |
 
-- Estimates, per time-frequency bin, soft masks for **speech**, **continuous noise** and **impulsive noise**.
-- **Tier 1 (rule-based, no training):** continuous = minimum-statistics stationary noise estimate; impulsive = transient-detector residual; speech = Mic1/Mic2 ratio plus voice activity detection.
-- **Tier 2 (learned):** a small head trained with the exact **three-layer labels** from the dataset (Section 6).
-- **Why it exists:** a gunshot landing on a syllable should be removed **without damaging the speech underneath it**, which requires knowing which stream a bin belongs to.
+These values are starting guesses and must be tuned on the real prototype. NLMS stays in the final system **only if the ablation shows a gain**.
 
-### **5.6 E: Neural core (DeepFilterNet3, dual-mic, FiLM-conditioned)** *(core)*
+### 5.3 Layer 3: Neural core (DeepFilterNet3, dual-mic, FiLM-conditioned)
 
-- **Base:** pretrained **DeepFilterNet3** (ERB-band gains plus deep-filter taps).
-- **Extensions:** second microphone as side information (complex STFT plus inter-mic ratio and phase), and **FiLM** conditioning from the guard flags and separator streams.
-- **Speech-preservation rule:** where speech probability is high, the per-bin attenuation is **capped** (starting point **12 dB**, to be tuned on validation data), **trading a little residual noise for intelligibility.**
-- **Output:** enhanced spectrum plus per-bin **confidence**.
+- **Base:** pretrained DeepFilterNet3 (ERB-band gains plus deep-filter complex taps, complex-domain so phase is preserved).
+- **Dual-mic input:** the reference microphone is given to the model as side information (complex STFT plus inter-mic magnitude ratio and phase difference).
+- **Impulse-aware conditioning:** the 1-2 ms detector flag and the speech-gate flag feed the network through FiLM layers (scale and shift on encoder features).
+- **Speech-preservation rule:** where speech probability is high, per-bin attenuation is capped (starting point 12 dB, to be tuned on validation data), trading a little residual noise for intelligibility.
 
-### **5.7 M: Margin controller (confidence blend)** *(optional)*
-
-`out = c * enhanced + (1 - c) * conservative`
-
-- `conservative` is a **mild-gain version of Mic1**.
-- Confidence `c` is combined from three sources (minimum or weighted average):
-  1. A **learned head** trained on the known error `|enhanced - clean|` (possible because the data is synthetic).
-  2. **Agreement** between the model's gain and a classical noise-estimate gain.
-  3. A **quality-estimate gate**: if predicted output quality is below the input's, use pass-through.
-- **Wording:** this is a *confidence estimate*, **not a guarantee**, until we show calibration (see limitations).
-
-### **5.8 Limiter and watchdog** *(core)*
-
-- **Look-ahead soft limiter** at about **-3 dBFS** protects the listener from peaks.
-- **Watchdog** monitors processing time per frame and model health, and steps down the degradation ladder in Section 4.
-
-### **5.9 Live dashboard** *(optional)*
-
-A small view of the **stream mix**, **confidence**, **microphone health**, **real-time factor** and **latency**. **It is a debugging and demo aid, not a claim of performance.**
-
-## **6. Dataset pipeline**
-
-We build every training example as **three separate layers**, so the ideal target for each stream is known exactly:
+### 5.4 Confidence blend
 
 ```
-mic = speech + g_bg * background(continuous) + g_ev * event(gunshot / blast)
-saved: speech, background, event     (labels for the separator)
+out = c * enhanced + (1 - c) * conservative
+```
+
+`conservative` is a mild-gain version of Mic 1. The confidence `c` comes from the model's per-bin confidence and, where possible, agreement with a classical noise-estimate gain. If predicted output quality is below the input's, the output falls back toward pass-through.
+
+Wording: this is a *confidence estimate, not a guarantee*, until we show calibration.
+
+### 5.5 Soft limiter and watchdog
+
+- **Look-ahead soft limiter**, ceiling about -3 dBFS, protects the listener from peaks and from any blast residue the model lets through.
+- **Watchdog** monitors processing time per frame and model health, and steps down the ladder in Section 4. The demo never goes silent.
+
+### 5.6 Live dashboard
+
+A small view of mic health, confidence, real-time factor and latency. It is a debugging and demo aid, **not a claim of performance**.
+
+## 6. Dataset pipeline
+
+An automated two-microphone simulation builds every training example:
+
+```
+Mic 1 = room(speech) + g * room(noise)
+Mic 2 = leak * room(speech) + g * room(noise, different delays)    # leak about -15 to -25 dB
+Target = dry speech at Mic 1
 ```
 
 | Parameter | Planned range |
 |---|---|
-| **SNR** | **-5 to 15 dB** |
-| **Events per clip** | 1 to 3, some deliberately on syllables |
-| **Reverb** | Simulated room impulse responses (pyroomacoustics) |
-| **Two-mic simulation** | Mic1 near mouth, Mic2 facing away, with speech leakage into Mic2 at about -15 to -25 dB |
-| **Hardware effects** | Clipping, radio band-limit, reference-mic dropout |
-| **Fault simulation** | Blocked-mic and wind/thump cases, used only to test block P |
+| SNR | -5 to 15 dB (training); evaluation reported at 0, 5, 10 dB |
+| Events per clip | 1 to 3 impulsive events, some deliberately on syllables |
+| Reverb | Simulated room impulse responses (pyroomacoustics) |
+| Two-mic simulation | Mic 1 near mouth, Mic 2 facing away, speech leakage into Mic 2 |
+| Augmentation | Random gain, EQ, extra reverb, radio band-limit, hard clipping, reference-mic dropout |
+| Labels saved | SNR, noise class (stationary / periodic / impulsive), impulse onset times |
+| Splits | Speaker-disjoint **and** noise-file-disjoint; some noise types fully held out for testing |
 
-**Data sources:** public speech corpora (e.g. **LibriSpeech**) and public noise sets, plus **our own recordings** from the prototype microphones. Public sets contain few genuinely defence-specific clips, so **we hold out noise *types* for testing** and design the pipeline to accept **real defence noise recordings** later without changes.
+**Data sources:** LibriSpeech and DNS Challenge speech and noise, a range-recorded gunshot dataset, C3GD, plus our own recordings on the prototype microphones (test only). Operating rate is 48 kHz because pretrained DeepFilterNet3 is native 48 kHz; 16 kHz-only corpora are upsampled or skipped.
 
-**Consistency rule:** whatever runs live before the model (repair, NLMS) **must also run inside the data pipeline**. Otherwise the model trains on data that differs from what it sees in deployment. If a block is not applied in training, it is kept only as a separate output path.
+**Consistency rule.** Whatever runs live before the model (guard, NLMS) must also run inside the data pipeline. Otherwise the model trains on data that differs from what it sees in deployment. If NLMS is not applied in training, the model is fed raw mics and NLMS is kept only as a separate output path.
 
-## **7. The neural model and training**
+**Honest limitation.** This is synthetic data built from public clips, not recordings from a real defence source. We compensate with held-out noise types and real recordings on our prototype. The pipeline is designed to accept real DRDO-provided noise recordings later without changes.
 
-- **Approach:** **fine-tune DeepFilterNet3, do not train from scratch.**
-- **Staged plan:**
-  1. **Tier 0:** pretrained DFN3 + limiter + watchdog, running live. **This must work first.**
-  2. **Single-channel fine-tune** on our data (Plan B).
-  3. **Dual-mic input** and impulse/noise-type conditioning (Plan A), if time allows.
-- **Losses (planned):** **SI-SNR**, **L1/L2 spectral losses** and a **perceptual loss**, with extra weight on frames containing impulses.
-- **Deployment:** export to **ONNX** and quantise to **int8** for the Raspberry Pi. If measured real-time factor is too high, a lighter model (e.g. **GTCRN**) is the fallback.
-- **Licence of the base model:** DeepFilterNet3 is released under permissive licences (MIT/Apache-2.0). Confirm against the repository before redistributing weights.
+## 7. The neural model and training
 
-## **8. Hardware prototype**
+**Approach: fine-tune DeepFilterNet3, do not train from scratch.**
+
+Staged plan (each stage leaves a working fallback):
+
+| Plan | System | Role |
+|---|---|---|
+| C (demo-safe) | Pretrained DFN3 + limiter | Guarantees a live demo; built first |
+| B | Single-channel fine-tuned DFN3 + guarded NLMS + limiter | Upgrade on top of C |
+| A (full) | Dual-mic + impulse/noise-type conditioning + guarded NLMS + limiter | Default target if time allows |
+
+**Losses (planned):** SI-SNR, L1/L2 spectral losses, multi-resolution STFT and a perceptual loss, with extra weight on frames containing impulses.
+
+**Hyper-parameter search:** Optuna on a data subset (a few tens of short trials).
+
+**Deployment:** export to ONNX and quantise to int8 for the Pi. If the measured real-time factor (RTF) is too high, a lighter model (GTCRN) is the fallback.
+
+**Reference benchmarks (third-party, laptop CPUs, not ours):** DeepFilterNet reports RTF 0.04 (DFN2) and 0.19 (DFN3). **The Raspberry Pi 4 benchmark is pending**; measuring it is our Day 1 milestone.
+
+**Licence of the base model:** DeepFilterNet3 is released under MIT/Apache-2.0. Confirm against the repository before redistributing weights.
+
+## 8. Hardware prototype
 
 | Item | Choice |
 |---|---|
-| **Compute** | **Raspberry Pi 5**, with heatsink, fan and adequate power supply |
-| **Microphones** | **2x INMP441** I2S MEMS on one I2S bus (same clock, so sample-synchronised) |
-| **Playback** | USB DAC + headset |
-| **Backup** | ReSpeaker 2-Mic HAT, spare SD card image |
-| **Optional** | Jetson (TensorRT) comparison, since the PS mentions Jetson-class hardware "or similar" |
+| Compute | Raspberry Pi 4 (4 GB) with heatsink, fan and 5V/3A supply |
+| Microphones | 2x INMP441 I2S MEMS on one I2S bus (same clock, so sample-synchronised) |
+| Playback | USB DAC + headset (volume-limited) |
+| Backup | ReSpeaker 2-Mic HAT, spare SD card with identical image |
+| Optional | Jetson (TensorRT) comparison, since the PS mentions Jetson AGX Orin "or similar" |
 
-**Wiring summary (INMP441 to Raspberry Pi I2S):** VDD to **3.3 V**, GND to **GND**, SCK to **GPIO18**, WS to **GPIO19**, SD to **GPIO20**. **Mic1** (near the mouth) has its L/R pin to **GND**; **Mic2** (facing away) has L/R to **3.3 V**, so they share the bus as left and right channels.
+**Wiring (INMP441 to Raspberry Pi I2S):** VDD to 3.3 V, GND to GND, SCK to GPIO18, WS to GPIO19, SD to GPIO20. Mic 1 (near the mouth) has its L/R pin to GND; Mic 2 (facing away) has L/R to 3.3 V, so they share the bus as left and right channels.
 
-**Real-time budget:** **the CPU budget on the Pi is unmeasured.** Measuring **real-time factor** and **end-to-end latency** is the first milestone, and it decides which model and which optional blocks we actually run.
+**Mic placement matters.** Mic 1 on a short boom near the mouth with a foam windscreen; Mic 2 on the outside of the headset, facing away, port unblocked.
 
-## **9. Safety design**
+**Real-time budget:** the Pi 4 CPU budget is unmeasured. Measuring RTF and end-to-end latency is the first milestone, and it decides which model (DFN3 or GTCRN) and which optional blocks we actually run.
 
-- **Ear safety:** look-ahead soft limiter at about **-3 dBFS**.
-- **Fail-safe audio:** the watchdog **degrades the pipeline rather than muting it**.
-- **Safe testing:** noise and gunshot recordings are played from a speaker at safe levels. **We never play real gunshot levels into a headset.**
-- **No silent failure:** microphone faults and model failures are **flagged and shown on the dashboard**.
+## 9. Safety design
 
-## **10. Evaluation plan**
+- **Ear safety:** look-ahead soft limiter at about -3 dBFS.
+- **Fail-safe audio:** the watchdog degrades the pipeline rather than muting it.
+- **Safe testing:** noise and gunshot recordings are played from a speaker at safe levels. We never play real gunshot levels into a headset. The limiter is verified before volume is raised.
+- **No silent failure:** microphone faults and model failures are flagged and shown on the dashboard.
 
-We keep the evaluation focused on what the PS asks for: **noise suppression** across stationary, non-stationary and impulsive noise, **speech intelligibility**, and **real-time performance on embedded hardware**.
+## 10. Evaluation plan
 
-### **Metrics**
+We keep the evaluation focused on what the PS asks for.
 
 | Metric | What it tells us | PS requirement |
 |---|---|---|
-| **Output SI-SNR** (or SNR improvement) | Noise reduction | Suppress noise |
-| **STOI** | Objective speech intelligibility | High intelligibility |
-| **Real-time factor (RTF), end-to-end latency, CPU load** on the Pi | Embedded feasibility | Real-time on embedded hardware |
-| **PESQ** (optional, only if it runs easily) | Perceptual speech quality | Supporting metric |
+| Output SI-SNR (and SNR improvement) | Noise reduction | Suppress noise |
+| STOI | Objective speech intelligibility | High intelligibility |
+| RTF, end-to-end latency, CPU load on the Pi | Embedded feasibility | Real-time on embedded hardware |
+| PESQ (optional) | Perceptual speech quality | Supporting metric |
 
-SI-SNR and STOI are reported **per noise type** (stationary, non-stationary, impulsive) and per input SNR, **using held-out noise types that were not seen in training.** The impulsive column covers the gunshot case.
+SI-SNR and STOI are reported **per noise type** (stationary, non-stationary, impulsive) and **per input SNR**, using held-out noise types not seen in training.
 
-### **Ablation study (core rows)**
-
-**Values are filled in only after measurement.**
+### Ablation study (values are filled in only after measurement)
 
 | ID | System | Output SI-SNR | STOI | RTF / latency on Pi |
 |---|---|---|---|---|
-| **A0** | Noisy input (baseline) | Not measured yet | Not measured yet | n/a |
-| **A1** | Pretrained DFN3 | Not measured yet | Not measured yet | Not measured yet |
-| **A2** | + fine-tune on defence-like noise | Not measured yet | Not measured yet | Not measured yet |
-| **A3** | + reference mic (dual-mic) | Not measured yet | Not measured yet | Not measured yet |
-| **A4** | + guarded NLMS (classical half of the hybrid) | Not measured yet | Not measured yet | Not measured yet |
+| A0 | Noisy input (baseline) | Not measured yet | Not measured yet | n/a |
+| A1 | Pretrained DFN3 | Not measured yet | Not measured yet | Not measured yet |
+| A2 | + fine-tune on defence-like noise | Not measured yet | Not measured yet | Not measured yet |
+| A3 | + reference mic (dual-mic) | Not measured yet | Not measured yet | Not measured yet |
+| A4 | + guarded NLMS | Not measured yet | Not measured yet | Not measured yet |
 
-**Any row that does not show a measured gain is dropped from the final system.**
+Any row that does not show a measured gain is dropped from the final system. Mic-health monitor and confidence blend get their own check if built (detection / false-alarm rate on injected faults; calibration plot for confidence), not an SNR row.
 
-### **Optional rows (added only if the block is actually built)**
+### Safety checks (simple tests, not quality scores)
 
-**Impulse repair (R)**, the **three-stream separator (S)**, the **confidence controller (M)** and the **disturbance monitor (P)** are our own extensions and are not PS requirements. If they are built, each gets one extra row; if not, they stay in [Future scope](#16-impact-and-future-scope) and are not listed as results. For block P the metric would be detection and false-alarm rate on injected faults, not SNR.
+- **Limiter:** feed a loud impulse and confirm the output peak stays under the ceiling.
+- **Watchdog:** stop or slow the model and confirm the pipeline falls back without going silent.
+- **Gate:** a clap freezes NLMS weights; the wearer talking is not cancelled.
 
-### **Safety checks (simple tests, not quality scores)**
+### Targets, not results
 
-- **Limiter:** feed a loud impulse and confirm the output peak stays under the limiter ceiling.
-- **Watchdog:** stop or slow the model and confirm the pipeline falls back to the simpler path **without going silent**.
+We aim for roughly **15 dB output SNR, 0.85 STOI** and real-time operation on the Pi (the PS also lists PESQ above 2.5). **These are targets. None has been measured or achieved.** Gunshots and very low input SNR (-5 dB) are expected to be harder, which is why we report per condition rather than one average.
 
-### **Targets, not results**
+## 11. Project status
 
-We aim for roughly **15 dB output SNR**, **0.85 STOI** and **real-time operation on the Pi**. **These are targets. None of them has been measured or achieved.**
+| Component | Status |
+|---|---|
+| Problem analysis and architecture design | Designed (documented here) |
+| Dataset specification (2-mic simulation) | Designed |
+| Dataset generator script | Planned |
+| Pretrained DFN3 + limiter + watchdog live demo | Planned (first milestone) |
+| Real-time benchmark on Raspberry Pi 4 | Planned |
+| Fine-tuning (single-channel, then dual-mic) | Planned |
+| Guard (impulse + speech gate) and guarded NLMS | Planned |
+| Mic-health monitor | Planned |
+| Confidence blend | Planned |
+| Live dashboard | Planned |
+| Evaluation on the core ablation | Not started |
 
-## **11. Project status**
+*(Update this table as work lands: Planned -> In progress -> Implemented.)*
 
-| Component | Tier | Status |
-|---|---|---|
-| Problem analysis and architecture design | Core | **Designed** (documented here) |
-| Dataset specification (three-layer mixing) | Core | **Designed** |
-| Dataset generator script | Core | Planned |
-| Pretrained DFN3 + limiter + watchdog live demo | Core | Planned (**first milestone**) |
-| Real-time benchmark on Raspberry Pi | Core | Planned |
-| Fine-tuning (single-channel, then dual-mic) | Core | Planned |
-| Guard (G) and guarded NLMS (N) | Core | Planned |
-| Evaluation on the 5-row core ablation | Core | Not started |
-| Impulse repair (R), three-stream separator (S) | Optional | Planned, only if time allows |
-| Confidence controller (M), disturbance monitor (P), dashboard | Optional | Planned, only if time allows |
+## 12. What we claim and what we do not
 
-## **12. What we claim and what we do not**
+**We can say**
 
-### **We can say**
+- A complete, PS-aligned pipeline design: dataset, ERB sub-band + full-band complex-domain neural model, SI-SNR/L1/L2/perceptual losses, optional guarded LMS, ONNX int8 edge deployment, and a live microphone-to-headset prototype plan.
+- A safety-oriented design: self-monitoring, graceful degradation and ear protection.
 
-- A **complete, PS-aligned pipeline design**: dataset, sub-band neural model, SI-SNR/L1/L2/perceptual losses, optional LMS, ONNX int8 edge deployment and a live microphone-to-headset prototype plan.
-- A **safety-oriented design**: self-monitoring, graceful degradation and ear protection.
-- If the optional extensions are built: to our knowledge, we have not found an open system that combines a time-domain impulse-repair stage, a three-stream separator and a confidence-gated output for defence audio. **This is a statement about what we found, not proof of novelty**, and it only applies to blocks that are actually implemented.
+**We do not say**
 
-### **We do not say**
+- That the SNR, STOI or PESQ targets are achieved.
+- That any added block improves results. Each is a hypothesis for the ablation to test.
+- That the base model is ours. It is DeepFilterNet3; our additions are the blocks above.
+- That the system works in the field or is certified for operational use.
+- That a block is built unless the Status table says so.
 
-- **That the SNR or STOI targets (or PESQ, if measured) are achieved.**
-- **That any added block improves results.** Each is a hypothesis for the ablation to test, and optional blocks that are not built make no claim at all.
-- **That the base model is ours.** It is DeepFilterNet3; our additions are the blocks above.
-- **That the system works in the field or is certified for operational use.**
-
-## **13. Known limitations and risks**
+## 13. Known limitations and risks
 
 | Risk | Mitigation |
 |---|---|
-| **Impulse repair** is wrong when muzzle-blast ringing outlasts the click | Neural model handles the tail; report results with and without repair |
-| **Confidence estimate** may be over-confident (uncalibrated) | Calibration plot planned; until then call it a "confidence estimate", not a guarantee |
-| **Speech-preservation cap** leaves too much residual noise | Tune the cap (dB) on validation data and report the trade-off |
-| **Disturbance monitor** false alarms (e.g. loud speech flagged as wind) | Thresholds tuned on real microphones, smoothing over frames, and the model still sees the raw microphones |
-| **Stacked blocks** add latency | Keep repair look-ahead to a few milliseconds, measure end-to-end latency, drop any block that costs too much |
-| **Raspberry Pi CPU budget** unmeasured | Benchmark first; lighter model as fallback |
-| **Simulation-to-real gap** (room response and mic behaviour differ from simulation) | EQ/RIR augmentation and a light fine-tune on real recordings |
-| **Few defence-specific public noise clips** | Held-out noise types; pipeline accepts real recordings later |
+| Raspberry Pi 4 CPU budget unmeasured | Benchmark first (Day 1); ONNX int8; GTCRN as lighter fallback |
+| Gunshots (1-5 ms) shorter than a 20 ms STFT frame | Time-domain detector + FiLM conditioning + impulse-weighted loss + limiter |
+| NLMS weights blow up on a blast or cancel the voice | mu = 0 on impulse and wearer speech; normalised update |
+| Speech gate misfires (e.g. wind gust at Mic 1) | Tune on real mics, smooth over frames; model also sees raw mics |
+| Train/test mismatch after adding NLMS | Run the same gate + NLMS in the data pipeline, or drop NLMS (ablation decides) |
+| Few defence-specific public noise clips | Held-out noise types; pipeline accepts real recordings later |
+| Simulation-to-real gap | EQ/RIR augmentation and a light fine-tune on real recordings |
+| Mic clips at gunshot level (INMP441 overload point about 120 dB SPL, per datasheet) | Clipping augmentation; demo with recorded clips at safe level; a limiter cannot repair a clipped input |
+| int8 quantisation hurts quality | Compare fp32 vs int8; keep sensitive layers in higher precision |
+| Clock drift between I2S mics and USB DAC | ALSA/PipeWire resampling; monitor buffer level |
+| Python audio glitches | Separate I/O and inference threads; larger buffer; C++/Rust runtime if needed |
+| I2S overlay or OS mismatch | Test on Day 1; ReSpeaker HAT backup path; passthrough stage first |
+| Confidence estimate may be over-confident | Calibration plot; call it an estimate, not a guarantee |
+| Hardware fails during demo | Spare Pi/SD image, pre-recorded before/after audio, watchdog fallback, rehearsal |
 
-## **14. Proposed repository layout**
+## 14. Repository layout
 
 ```
 .
@@ -328,15 +339,15 @@ We aim for roughly **15 dB output SNR**, **0.85 STOI** and **real-time operation
 ├── requirements.txt
 ├── docs/
 │   ├── architecture.md          # block diagram and signal flow
-│   ├── dataset_spec.md          # three-layer mixing, SNR ranges, augmentations
+│   ├── dataset_spec.md          # 2-mic mixing, SNR ranges, augmentations
 │   ├── evaluation_plan.md       # metrics, protocol, ablation table
 │   ├── hardware_setup.md        # wiring, I2S configuration, BOM
 │   └── images/                  # diagrams and charts
 ├── data/
 │   └── README.md                # how to obtain datasets; no large files in git
 ├── src/
-│   ├── dataset/                 # three-layer mixer, 2-mic simulation
-│   ├── blocks/                  # monitor, guard, repair, nlms, separator, controller, limiter
+│   ├── dataset/                 # mixer, 2-mic simulation
+│   ├── blocks/                  # mic-health monitor, guard, nlms, confidence blend, limiter
 │   ├── model/                   # DFN3 wrapper, dual-mic and FiLM extensions
 │   ├── runtime/                 # live pipeline, watchdog, dashboard
 │   └── eval/                    # SI-SNR, STOI, PESQ, RTF/latency scripts
@@ -350,17 +361,17 @@ We aim for roughly **15 dB output SNR**, **0.85 STOI** and **real-time operation
     └── README.md                # only measured numbers, with the command that produced them
 ```
 
-## **15. Getting started (planned)**
+## 15. Getting started (planned)
 
-> **These commands describe the intended workflow.** Scripts are added as they are implemented; check the [Status table](#11-project-status) before running anything.
+These commands describe the intended workflow. Scripts are added as they are implemented; **check the Status table before running anything.**
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/vaanishield-sih-2026.git
+git clone https://github.com/Janhavi-015/vaanishield-sih-2026.git
 cd vaanishield-sih-2026
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# 1) Generate synthetic three-layer data (planned)
+# 1) Generate synthetic 2-mic data (planned)
 python scripts/make_dataset.py --out data/synth --snr-min -5 --snr-max 15
 
 # 2) Measure real-time factor on the target board (planned, first milestone)
@@ -370,52 +381,56 @@ python scripts/benchmark_rtf.py --model pretrained_dfn3
 python scripts/run_live.py --tier 0
 ```
 
-**Software stack:** **Python**, NumPy/SciPy, **PyTorch** (training), **ONNX Runtime** (edge inference), **pyroomacoustics** (simulation), **pystoi** and **pesq** (metrics), **Optuna** (hyper-parameter search).
+**Software stack:** Python, NumPy/SciPy, PyTorch (training), ONNX Runtime (edge inference), pyroomacoustics (simulation), pystoi and pesq (metrics), Optuna (hyper-parameter search).
 
-## **16. Impact and future scope**
+## 16. Impact and future scope
 
-### **Intended impact (to be validated by the evaluation above)**
+**Intended impact (to be validated by the evaluation above)**
 
-- **Infantry and vehicle/aircrew:** aims to make radio commands clearer near gunfire, engine, rotor and wind noise.
-- **Disaster response and industrial sites:** aims to keep communication usable near machinery and sirens.
-- **Cost and reuse:** a Pi-class device could replace custom DSP boards (exact bill of materials to be confirmed); the same pipeline accepts new noise types and real defence recordings.
+- **Soldiers and infantry:** aims to make radio commands clearer amid gunfire, artillery and vehicle noise.
+- **Vehicle and aircrew:** aims to cut rotor, engine and wind noise on the headset path.
+- **Disaster response (NDRF/SDRF):** aims to keep communication usable near machinery, sirens and collapsed structures.
+- **Industrial high-noise sites:** named in the PS as a deployment sector beyond defence.
+- **Cost and reuse:** a Pi-class device could replace custom DSP boards (exact bill of materials to be confirmed); new noise types plug into the same dataset and training pipeline.
+- **Strategic:** an indigenous, deployable speech-enhancement pipeline for defence communication, aligned with DRDO/iDEX and Atmanirbhar Bharat, designed to accept real DRDO noise recordings without redesign.
 
-### **Future scope**
+**Future scope**
 
-- **Phase 2, physical ANC:** FxLMS-based anti-noise inside the earcup, complementing the communication-path system.
-- **Real defence data:** plug in DRDO-provided noise recordings in place of public datasets.
-- **Optional extensions not built in this phase (if any):** impulse repair, three-stream separator, confidence controller and disturbance monitor, each with its own ablation row.
-- **Confidence calibration and distillation** into a smaller model.
-- **Gunshot direction estimation** from inter-mic delay (coarse with closely spaced microphones).
+- Phase 2, physical ANC: FxLMS-based anti-noise inside the earcup, complementing the communication-path system.
+- Real defence data: plug in DRDO-provided noise recordings in place of public datasets.
+- Further extensions, each with its own ablation row if built: time-domain impulse repair, a three-stream (speech / continuous / impulsive) separator.
+- Confidence calibration and distillation into a smaller model.
+- Gunshot direction estimation from inter-mic delay (coarse with closely spaced microphones).
 
-## **17. Team**
+## 17. Team
+
+**Team name:** 6 Solvers | **Team ID:** 186200 | **Problem Statement:** SIH26052
 
 | S. No. | Name | Role |
-|:---:|---|---|
-| 1 | Rudraksh Budhappa | Member |
+|---|---|---|
+| 1 | Rudraksh Budhappa | Leader |
 | 2 | Ritesh Ranjan | Member |
 | 3 | Sagar | Member |
 | 4 | Isha Thakur | Member |
 | 5 | Sarwat Hussian Sheik | Member |
 | 6 | Janhavi Tidke | Member |
 
-**Team name:** 6 Solvers | **Team ID:** (fill in) | **Problem Statement:** SIH26052
+## 18. References
 
-**Team name:** 6 Solvers | **Team ID:** (fill in) | **Problem Statement:** SIH26052
+> Verify authors, years and venues before citing in a final report.
 
-## **18. References**
+- Narain et al., DRDO, 2026: review of noise-cancellation / speech-enhancement work for military noise.
+- Gurny and Quinn, 2026: gunshot data and short-impulse characteristics.
+- Akarsh et al.; Dai Shuning (NTU, 2026): deep ANC and speech-preserving active noise control vs FxLMS.
+- Schroter et al.: DeepFilterNet family (DeepFilterNet, DeepFilterNet2, DeepFilterNet3).
+- Westhausen and Meyer: DTLN and DTLN-aec.
+- GTCRN: lightweight speech-enhancement model (fallback candidate); IVA + GTCRN for dual-mic systems.
+- Datasets: LibriSpeech, DNS Challenge noise, range-recorded gunshot dataset, C3GD.
+- pyroomacoustics (room and microphone simulation); pystoi and pesq (metrics).
+- INMP441 (TDK) datasheet; NIOSH 1998 criteria (85 dBA 8-hour limit; impulse noise not above 140 dB peak); MIL-STD-1474D/E.
 
-1. Narain et al., review of noise-cancellation / speech enhancement work (DRDO), as studied for this project.
-2. Dai Shuning, thesis on speech-preserving active noise control.
-3. Westhausen and Meyer, **DTLN** (dual-signal transformation LSTM network) and its echo-cancellation variant.
-4. Schröter et al., **DeepFilterNet** family of speech-enhancement models (repository and papers).
-5. **GTCRN**, a lightweight speech-enhancement model (fallback candidate).
-6. **pyroomacoustics** documentation (room and microphone simulation).
-7. **pystoi** and **pesq** packages (metrics).
-8. **INMP441** I2S MEMS microphone datasheet.
-9. Sound-level references: NIOSH / WHO / MIL-STD-1474.
+## 19. License and disclaimer
 
-## **19. License and disclaimer**
+**Code:** MIT License (see `LICENSE`). Third-party models and datasets keep their own licences.
 
-- **Code:** **MIT License** (see `LICENSE`). Third-party models and datasets keep their own licences.
-- **Disclaimer:** **this is a hackathon prototype. It has not been tested or certified for operational, safety-critical or field use. Do not rely on it for hearing protection or mission communication.**
+**Disclaimer:** this is a hackathon prototype. It has not been tested or certified for operational, safety-critical or field use. Do not rely on it for hearing protection or mission communication.
